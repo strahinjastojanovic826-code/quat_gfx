@@ -1,6 +1,6 @@
 [package]
 name = "quat_gfx"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 authors = ["Strale <strahinjastojanovic826@gmail.com>"]
 description = "Multi-platform graphics library (DirectX 12, Vulkan, Metal) in Rust with 4-state management and C/C++/C# bindings."

@@ -1,52 +1,48 @@
-use crate::state::ResourceState;
 use crate::backend::GraphicsBackend;
+use crate::state::ResourceState;
 
 pub struct CommandList {
     backend: GraphicsBackend,
-    commands: Vec<String>,
+    // Ovde u produkciji ide npr. ID3D12GraphicsCommandList ili VkCommandBuffer
+    commands_count: usize,
 }
 
 impl CommandList {
     pub fn new(backend: GraphicsBackend) -> Self {
         Self {
             backend,
-            commands: Vec::new(),
+            commands_count: 0,
         }
     }
 
-    pub fn resource_barrier(&mut self, resource_id: u32, from_state: ResourceState, to_state: ResourceState) {
+    pub fn resource_barrier(
+        &mut self,
+        resource_id: u32,
+        from_state: ResourceState,
+        to_state: ResourceState,
+    ) {
         match self.backend {
             GraphicsBackend::DirectX12 => {
-                let cmd = format!(
-                    "[DX12] D3D12_RESOURCE_BARRIER for Resource {} : State {:?} (0b{:02b}) -> State {:?} (0b{:02b})",
-                    resource_id, from_state, from_state.numeric_value(), to_state, to_state.numeric_value()
-                );
-                self.commands.push(cmd);
+                // Implementirati D3D12_RESOURCE_BARRIER tranziciju
+                self.commands_count += 1;
             }
             GraphicsBackend::Vulkan => {
-                let cmd = format!(
-                    "[Vulkan] VkImageMemoryBarrier / VkBufferMemoryBarrier for Resource {} : State {:?} (0b{:02b}) -> State {:?} (0b{:02b})",
-                    resource_id, from_state, from_state.numeric_value(), to_state, to_state.numeric_value()
-                );
-                self.commands.push(cmd);
+                // Implementirati VkImageMemoryBarrier / VkBufferMemoryBarrier
+                self.commands_count += 1;
             }
             GraphicsBackend::Metal => {
-                let cmd = format!(
-                    "[Metal] MTLBlitCommandEncoder / RenderPass Barrier for Resource {} : State {:?} (0b{:02b}) -> State {:?} (0b{:02b})",
-                    resource_id, from_state, from_state.numeric_value(), to_state, to_state.numeric_value()
-                );
-                self.commands.push(cmd);
+                // Implementirati MTLRenderPassDescriptor / MTLBlitCommandEncoder
+                self.commands_count += 1;
             }
         }
     }
 
-    pub fn draw(&mut self, vertex_count: u32) {
-        self.commands.push(format!("DrawPrimitives(vertex_count: {})", vertex_count));
+    pub fn draw(&mut self, _vertex_count: u32) {
+        self.commands_count += 1;
     }
 
-    pub fn flush_commands(&self) {
-        for cmd in &self.commands {
-            println!("{}", cmd);
-        }
+    pub fn flush_commands(&mut self) {
+        // Submit komandne liste na GPU queue
+        self.commands_count = 0;
     }
 }
