@@ -1,12 +1,17 @@
 use crate::backend::GraphicsBackend;
-use crate::state::ResourceState;
-use crate::resource::{ResourceDesc, GpuResource};
 use crate::command::CommandList;
+use crate::resource::{GpuResource, NativeGpuHandle, ResourceDesc};
+use crate::state::ResourceState;
 
 pub trait GpuDevice {
     fn backend_type(&self) -> GraphicsBackend;
     fn create_resource(&mut self, desc: ResourceDesc) -> GpuResource;
-    fn transition_resource(&self, cmd_list: &mut CommandList, resource: &mut GpuResource, new_state: ResourceState);
+    fn transition_resource(
+        &self,
+        cmd_list: &mut CommandList,
+        resource: &mut GpuResource,
+        new_state: ResourceState,
+    );
 }
 
 pub struct DeviceManager {
@@ -16,17 +21,6 @@ pub struct DeviceManager {
 
 impl DeviceManager {
     pub fn new(backend: GraphicsBackend) -> Self {
-        match backend {
-            GraphicsBackend::DirectX12 => {
-                println!("Initializing DirectX 12 Device, Command Queue, and Swapchain...");
-            }
-            GraphicsBackend::Vulkan => {
-                println!("Initializing Vulkan Instance, Physical Device, Logical Device, and Queues...");
-            }
-            GraphicsBackend::Metal => {
-                println!("Initializing Metal MTLDevice and Command Queues...");
-            }
-        }
         Self {
             backend,
             next_resource_id: 1,
@@ -46,23 +40,23 @@ impl GpuDevice for DeviceManager {
     fn create_resource(&mut self, desc: ResourceDesc) -> GpuResource {
         let id = self.next_resource_id;
         self.next_resource_id += 1;
-        
-        match self.backend {
-            GraphicsBackend::DirectX12 => {
-                println!("[DX12] Creating committed resource ID {} in state {:?}", id, desc.initial_state);
-            }
-            GraphicsBackend::Vulkan => {
-                println!("[Vulkan] Creating VkImage/VkBuffer ID {} in state {:?}", id, desc.initial_state);
-            }
-            GraphicsBackend::Metal => {
-                println!("[Metal] Creating MTLTexture/MTLBuffer ID {} in state {:?}", id, desc.initial_state);
-            }
-        }
 
-        GpuResource::new(id, desc)
+        // Kreiranje nativnih ručki za izabrani backend
+        let handle = match self.backend {
+            GraphicsBackend::DirectX12 => NativeGpuHandle::Dx12Resource(std::ptr::null_mut()),
+            GraphicsBackend::Vulkan => NativeGpuHandle::VulkanImage(0),
+            GraphicsBackend::Metal => NativeGpuHandle::MetalTexture(std::ptr::null_mut()),
+        };
+
+        GpuResource::new(id, desc, handle)
     }
 
-    fn transition_resource(&self, cmd_list: &mut CommandList, resource: &mut GpuResource, new_state: ResourceState) {
+    fn transition_resource(
+        &self,
+        cmd_list: &mut CommandList,
+        resource: &mut GpuResource,
+        new_state: ResourceState,
+    ) {
         let old_state = resource.current_state();
         if old_state == new_state {
             return;

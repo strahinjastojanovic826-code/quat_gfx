@@ -1,4 +1,4 @@
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum GraphicsBackend {
     DirectX12 = 0,
     Vulkan = 1,
@@ -7,7 +7,7 @@ pub enum GraphicsBackend {
 
 impl GraphicsBackend {
     pub fn from_u8(val: u8) -> Self {
-        match val {
+        match val & 0b11 { // Kvartarno maskiranje
             0 => GraphicsBackend::DirectX12,
             1 => GraphicsBackend::Vulkan,
             _ => GraphicsBackend::Metal,

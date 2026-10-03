@@ -16,19 +16,30 @@ pub struct ResourceDesc {
     pub initial_state: ResourceState,
 }
 
+/// Nativne ručke za drajvere umjesto simulacije sa u32
+#[derive(Debug)]
+pub enum NativeGpuHandle {
+    Null,
+    Dx12Resource(*mut std::ffi::c_void),
+    VulkanImage(u64),
+    MetalTexture(*mut std::ffi::c_void),
+}
+
 pub struct GpuResource {
     id: u32,
     desc: ResourceDesc,
     current_state: ResourceState,
+    pub handle: NativeGpuHandle,
 }
 
 impl GpuResource {
-    pub fn new(id: u32, desc: ResourceDesc) -> Self {
+    pub fn new(id: u32, desc: ResourceDesc, handle: NativeGpuHandle) -> Self {
         let initial_state = desc.initial_state;
         Self {
             id,
             desc,
             current_state: initial_state,
+            handle,
         }
     }
 
