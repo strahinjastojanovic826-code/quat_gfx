@@ -17,9 +17,9 @@ impl CommandList {
 
     pub fn resource_barrier(
         &mut self,
-        resource_id: u32,
-        from_state: ResourceState,
-        to_state: ResourceState,
+        _resource_id: u32,
+        _from_state: ResourceState,
+        _to_state: ResourceState,
     ) {
         match self.backend {
             GraphicsBackend::DirectX12 => {
@@ -34,6 +34,14 @@ impl CommandList {
                 // Implementirati MTLRenderPassDescriptor / MTLBlitCommandEncoder
                 self.commands_count += 1;
             }
+            GraphicsBackend::WebGPU => {
+    // Implementirati WebGPU barijeru
+    self.commands_count += 1;
+}
+GraphicsBackend::OpenGL => {
+    // Implementirati OpenGL memory barrier
+    self.commands_count += 1;
+}
         }
     }
 

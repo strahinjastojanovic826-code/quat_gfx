@@ -33,6 +33,27 @@ impl ResourceState {
     pub fn numeric_value(&self) -> u8 {
         *self as u8
     }
+    pub fn is_transition_valid(self, next: Self) -> bool {
+        // Matrica 4x4 bazirana na kvartarnim indeksima (0..3)
+        // Red = trenutno stanje, Kolona = novo stanje
+        #[rustfmt::skip]
+        const VALIDATION_MATRIX: [[bool; 4]; 4] = [
+            // State00 (Undefined) -> Može u bilo koje stanje
+            [true,  true,  true,  true],
+            // State01 (Read-Only) -> Može u Read ili Write, ali ne direktno u Present
+            [true,  true,  true,  false],
+            // State10 (Storage Write) -> Mora ići u Read ili Render Target pre čitanja
+            [true,  true,  true,  true],
+            // State11 (Render Target / Present) -> Tranzicija dozvoljena
+            [true,  true,  true,  true],
+        ];
+
+        let from_idx = self as usize;
+        let to_idx = next as usize;
+
+        VALIDATION_MATRIX[from_idx][to_idx]
+    }
+
 }
 
 // Bitflags 2.4 integracija za kombinovana stanja
@@ -65,6 +86,34 @@ impl QuatDigit {
             _    => QuatDigit::Q3,
         }
     }
+    pub fn invert(self) -> Self {
+        match self {
+            QuatDigit::Q0 => QuatDigit::Q3,
+            QuatDigit::Q1 => QuatDigit::Q2,
+            QuatDigit::Q2 => QuatDigit::Q1,
+            QuatDigit::Q3 => QuatDigit::Q0,
+        }
+    }
+
+    /// Kvartarno MIN (ekvivalent AND u viševrednosnoj logici)
+    pub fn min(self, other: Self) -> Self {
+        QuatDigit::from_bits((self as u8).min(other as u8))
+    }
+
+    /// Kvartarno MAX (ekvivalent OR u viševrednosnoj logici)
+    pub fn max(self, other: Self) -> Self {
+        QuatDigit::from_bits((self as u8).max(other as u8))
+    }
+
+    /// Sabiranje dve kvartarne cifre sa prenosom (Modularna aritmetika u bazi 4)
+    /// Vraća (rezultat, prenos)
+    pub fn add_with_carry(self, other: Self, carry_in: Self) -> (Self, Self) {
+        let sum = (self as u8) + (other as u8) + (carry_in as u8);
+        let result_digit = QuatDigit::from_bits(sum & 0b11); // mod 4 preko maske 0b11
+        let carry_out = QuatDigit::from_bits((sum >> 2) & 0b11); // div 4
+        (result_digit, carry_out)
+    }
+
 }
 
 /// Pakuje 4 Kvat stanja u samo 1 bajt (u8)
@@ -81,5 +130,61 @@ impl PackedQuatState {
         let shift = (index & 0b11) * 2;
         let mask = !(0b11 << shift);
         self.0 = (self.0 & mask) | ((quat as u8) << shift);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PackedQuatState64(pub u64);
+
+impl PackedQuatState64 {
+    pub const CAPACITY: usize = 32;
+
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// Preuzima kvat na zadatom indeksu (0..31)
+    #[inline(always)]
+    pub fn get_quat(&self, index: usize) -> QuatDigit {
+        assert!(index < Self::CAPACITY, "Index out of bounds");
+        let shift = (index & 0b11111) * 2; // Maska 31 za opseg 0..31
+        let bits = ((self.0 >> shift) & 0b11) as u8;
+        QuatDigit::from_bits(bits)
+    }
+
+    /// Postavlja kvat na zadatom indeksu (0..31)
+    #[inline(always)]
+    pub fn set_quat(&mut self, index: usize, quat: QuatDigit) {
+        assert!(index < Self::CAPACITY, "Index out of bounds");
+        let shift = (index & 0b11111) * 2;
+        let mask = !(0b11u64 << shift);
+        self.0 = (self.0 & mask) | ((quat as u64) << shift);
+    }
+
+    /// Iterator kroz sva 32 kvat stanja u registru
+    pub fn iter(&self) -> PackedQuatIterator {
+        PackedQuatIterator {
+            packed: *self,
+            current_index: 0,
+        }
+    }
+}
+
+pub struct PackedQuatIterator {
+    packed: PackedQuatState64,
+    current_index: usize,
+}
+
+impl Iterator for PackedQuatIterator {
+    type Item = QuatDigit;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index < PackedQuatState64::CAPACITY {
+            let digit = self.packed.get_quat(self.current_index);
+            self.current_index += 1;
+            Some(digit)
+        } else {
+            None
+        }
     }
 }

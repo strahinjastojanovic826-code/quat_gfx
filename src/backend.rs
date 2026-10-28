@@ -3,6 +3,8 @@ pub enum GraphicsBackend {
     DirectX12 = 0,
     Vulkan = 1,
     Metal = 2,
+    WebGPU = 3,
+    OpenGL = 4,
 }
 
 impl GraphicsBackend {
@@ -10,7 +12,9 @@ impl GraphicsBackend {
         match val & 0b11 { // Kvartarno maskiranje
             0 => GraphicsBackend::DirectX12,
             1 => GraphicsBackend::Vulkan,
-            _ => GraphicsBackend::Metal,
+            2 => GraphicsBackend::Metal,
+            3 => GraphicsBackend::WebGPU,
+            _ => GraphicsBackend::OpenGL,
         }
     }
 

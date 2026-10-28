@@ -23,6 +23,8 @@ pub enum NativeGpuHandle {
     Dx12Resource(*mut std::ffi::c_void),
     VulkanImage(u64),
     MetalTexture(*mut std::ffi::c_void),
+    WebGpuBuffer(*mut std::ffi::c_void), 
+    OpenGlTexture(u32),
 }
 
 pub struct GpuResource {

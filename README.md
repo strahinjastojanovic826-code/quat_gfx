@@ -4,25 +4,27 @@ A lightweight, high-performance graphics abstraction library written in Rust, su
 
 ## Features
 
-* **Multi-Backend Support:** Abstracted architecture for DirectX 12, Vulkan, and Metal (macOS).
+* **Multi-Backend Support:** Abstracted architecture for DirectX 12, Vulkan, WebGPU, OpenGL and Metal (macOS).
 * **4-State Quaternary Resource State Machine:** Strict and precise resource state management using base-4 quaternary algebra (`00`, `01`, `10`, `11`).
 * **High-Density State Packing:** Efficient packing of 4 quaternary states into a single 8-bit byte (`u8`) via `PackedQuatState`.
 * **Bitflags 2.4 Integration:** Modern type-safe bitmask combinations for GPU resource states.
 * **Multi-Language Interop:** Full **C-FFI** layer (`extern "C"`) allowing seamless integration with C, C++, and C#.
 * **Modular Architecture:** Clean separation of concerns (`state`, `backend`, `device`, `resource`, `command`, `ffi`).
 * **Built-in Testing & Safety:** Comprehensive unit tests and null-pointer safety checks for C-FFI bindings.
+* **Resource State Transition Validation:** Strict state transition matrix to prevent invalid or unsafe resource state jumps.
+* **Thread-Safe FFI Support:** Thread-safe context wrappers (`Arc<Mutex<...>>`) enabling concurrent multi-threaded usage across different languages.
+* **Extended Quaternary Operations:** Advanced quaternary arithmetic, bitwise logic, and extended 64-bit multi-quat packing.
 
 ---
 
-## Project Structure
+## Licensing
 
-- `src/lib.rs` - Library entry point and module exports.
-- `src/backend.rs` - Graphics backend enum definitions (DX12, Vulkan, Metal).
-- `src/state.rs` - 4-state resource management system (`00`, `01`, `10`, `11`).
-- `src/resource.rs` - Resource descriptors and tracking (Buffers, Textures).
-- `src/command.rs` - Command lists and GPU barrier recording.
-- `src/device.rs` - Core device manager and hardware interface traits.
-- `src/ffi.rs` - C-compatible Foreign Function Interface for external languages.
+This project is dual-licensed:
+
+* **Open Source (AGPLv3):** Free to use for open-source projects. If you use or modify this library in your software or network service, your source code must also be open-source under AGPLv3.
+* **Commercial License:** Required if you want to use `quat_gfx` in closed-source or proprietary commercial software without AGPLv3 restrictions.
+
+For commercial licensing, contact: **strahinjastojanovic826@gmail.com**
 
 ---
 
@@ -77,6 +79,13 @@ fn main() {
     let mut packed_state = PackedQuatState(0);
     packed_state.set_quat(0, QuatDigit::Q1);
     packed_state.set_quat(1, QuatDigit::Q3);
+
+    // Primer korišćenja novih WebGPU ili OpenGL bekenda:
+    let webgpu_device = DeviceManager::new(GraphicsBackend::WebGPU);
+
+    // Primer korišćenja bitflags integracije za kombinovana stanja:
+    let mut flags = ResourceStateFlags::NONE;
+    flags.insert(ResourceStateFlags::SHADER_READ | ResourceStateFlags::COPY_DEST);
 }
 ```
 
@@ -99,7 +108,7 @@ typedef void* DeviceManagerPtr;
 typedef void* CommandListPtr;
 
 // Eksterne funkcije koje dolaze iz Rust (cdylib) biblioteke (quat_gfx)
-// backend_type: 0 = DirectX 12, 1 = Vulkan, 2 = Metal
+// backend_type: 0 = DirectX 12, 1 = Vulkan, 2 = Metal, 3 = WebGPU, 4 = OpenGL
 DeviceManagerPtr rhi_create_device(uint8_t backend_type);
 void rhi_destroy_device(DeviceManagerPtr device);
 
@@ -113,8 +122,8 @@ void rhi_command_list_flush(CommandListPtr cmd_list);
 int main() {
     printf("--- RHI Graphics Library Test from C ---\n");
 
-    // Na Linuxu koristimo Vulkan (1), na Windowsu DX12 (0), na Mac-u Metal (2)
-    DeviceManagerPtr device = rhi_create_device(1);
+    // Na Linuxu koristimo Vulkan (1), na Windowsu DX12 (0), na Mac-u Metal (2), ili WebGPU (3) / OpenGL (4)
+    DeviceManagerPtr device = rhi_create_device(1); 
     CommandListPtr cmd_list = rhi_create_command_list(device);
 
     uint32_t resource_id = 77;
@@ -147,7 +156,7 @@ extern "C" {
     void* rhi_create_device(uint8_t backend_type);
     void rhi_destroy_device(void* device);
     void* rhi_create_command_list(void* device);
-    void rhi_destroy_command_list(void* cmd_list);
+    void* rhi_destroy_command_list(void* cmd_list);
     void rhi_command_list_barrier(void* cmd_list, uint32_t resource_id, uint8_t from_state, uint8_t to_state);
     void rhi_command_list_flush(void* cmd_list);
 }
@@ -155,15 +164,15 @@ extern "C" {
 class GraphicsDevice {
     void* m_device{nullptr};
 public:
+    // backend: 0 = DX12, 1 = Vulkan, 2 = Metal, 3 = WebGPU, 4 = OpenGL
     explicit GraphicsDevice(uint8_t backend) : m_device(rhi_create_device(backend)) {}
-    ~GraphicsDevice() { 
-        if (m_device) { 
-            rhi_destroy_device(m_device); 
-            m_device = nullptr; 
-        } 
+    ~GraphicsDevice() {
+        if (m_device) {
+            rhi_destroy_device(m_device);
+            m_device = nullptr;
+        }
     }
 
-    // Onemogućavamo kopiranje radi RAII sigurnosti
     GraphicsDevice(const GraphicsDevice&) = delete;
     GraphicsDevice& operator=(const GraphicsDevice&) = delete;
 
@@ -173,14 +182,14 @@ public:
 class CommandList {
     void* m_cmd_list{nullptr};
 public:
-    explicit CommandList(const GraphicsDevice& device) 
+    explicit CommandList(const GraphicsDevice& device)
         : m_cmd_list(rhi_create_command_list(device.get())) {}
 
-    ~CommandList() { 
-        if (m_cmd_list) { 
-            rhi_destroy_command_list(m_cmd_list); 
-            m_cmd_list = nullptr; 
-        } 
+    ~CommandList() {
+        if (m_cmd_list) {
+            rhi_destroy_command_list(m_cmd_list);
+            m_cmd_list = nullptr;
+        }
     }
 
     void Barrier(uint32_t res_id, uint8_t from, uint8_t to) {
@@ -195,11 +204,14 @@ public:
 int main() {
     std::cout << "--- RHI Graphics Library Test from C++ ---\n";
 
-    GraphicsDevice device(1); // 1 = Vulkan
+    // 0 = DX12, 1 = Vulkan, 2 = Metal, 3 = WebGPU, 4 = OpenGL
+    GraphicsDevice device(1); 
     CommandList cmd_list(device);
 
     // Testiranje kvartarnih tranzicija stanja (0b00=0, 0b01=1, 0b10=2, 0b11=3)
-    cmd_list.Barrier(99, 0b00, 0b11);
+    cmd_list.Barrier(99, 0b00, 0b01);
+    cmd_list.Barrier(99, 0b01, 0b10);
+    cmd_list.Barrier(99, 0b10, 0b11);
     cmd_list.Flush();
 
     return 0;
@@ -216,32 +228,31 @@ using System.Runtime.InteropServices;
 
 class Program
 {
-    // Naziv tvoje kompajlirane Rust biblioteke (quat_gfx)
     const string DllName = "quat_gfx";
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern IntPtr rhi_create_device(byte backendType);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern void rhi_destroy_device(IntPtr devicePtr);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern IntPtr rhi_create_command_list(IntPtr devicePtr);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern void rhi_destroy_command_list(IntPtr cmdListPtr);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern void rhi_command_list_barrier(IntPtr cmdListPtr, uint resourceId, byte fromState, byte toState);
 
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdec1)]
     public static extern void rhi_command_list_flush(IntPtr cmdListPtr);
 
     static void Main(string[] args)
     {
         Console.WriteLine("--- RHI Graphics Library Test from C# ---");
 
-        // Kreiranje uređaja (1 = Vulkan)
+        // Kreiranje uređaja (0 = DX12, 1 = Vulkan, 2 = Metal, 3 = WebGPU, 4 = OpenGL)
         IntPtr device = rhi_create_device(1);
         IntPtr cmdList = rhi_create_command_list(device);
 

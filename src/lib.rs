@@ -6,7 +6,6 @@ pub mod device;
 pub mod ffi;
 
 pub use backend::GraphicsBackend;
-use crate::state::ResourceState;
 pub use resource::{ResourceDesc, ResourceType, GpuResource};
 pub use command::CommandList;
 pub use device::{GpuDevice, DeviceManager};
@@ -18,6 +17,7 @@ mod tests {
     use crate::device::{DeviceManager, GpuDevice};
     use crate::resource::{ResourceDesc, ResourceType};
     use crate::state::{ResourceState, ResourceStateFlags, QuatDigit, PackedQuatState};
+    use crate::state::PackedQuatState64;
     use crate::ffi::*;
     use std::ffi::c_void;
 
@@ -88,6 +88,12 @@ mod tests {
 
         let metal_device = DeviceManager::new(GraphicsBackend::Metal);
         assert_eq!(metal_device.backend_type(), GraphicsBackend::Metal);
+
+        let webgpu_device = DeviceManager::new(GraphicsBackend::WebGPU);
+        assert_eq!(webgpu_device.backend_type(), GraphicsBackend::WebGPU);
+
+        let opengl_device = DeviceManager::new(GraphicsBackend::OpenGL);
+        assert_eq!(opengl_device.backend_type(), GraphicsBackend::OpenGL);
     }
 
     #[test]
@@ -184,4 +190,36 @@ mod tests {
             assert!(res.is_null());
         }
     }
+    #[test]
+fn test_packed_quat_state_64() {
+    let mut packed = PackedQuatState64::new();
+    
+    packed.set_quat(0, QuatDigit::Q3);
+    packed.set_quat(31, QuatDigit::Q1);
+    
+    assert_eq!(packed.get_quat(0), QuatDigit::Q3);
+    assert_eq!(packed.get_quat(31), QuatDigit::Q1);
+    // Provera da li su ostali ostali nula (Q0)
+    assert_eq!(packed.get_quat(15), QuatDigit::Q0);
+}
+
+#[test]
+fn test_invalid_resource_transition() {
+    let mut device = DeviceManager::new(GraphicsBackend::Vulkan);
+    let mut cmd_list = device.create_command_list();
+    
+    let desc = ResourceDesc {
+        resource_type: ResourceType::Buffer,
+        size_in_bytes: 512,
+        width: 0,
+        height: 0,
+        initial_state: ResourceState::State00,
+    };
+    
+    let mut resource = device.create_resource(desc);
+    
+    let _ = device.safe_transition_resource(&mut cmd_list, &mut resource, ResourceState::State01);
+    
+}
+
 }
