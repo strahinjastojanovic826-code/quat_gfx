@@ -4,6 +4,8 @@ use crate::command::CommandList;
 use crate::device::DeviceManager;
 use crate::state::ResourceState;
 use std::sync::{Arc, Mutex};
+use crate::state::{PackedQuatState64, QuatDigit};
+use std::os::raw::c_int;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rhi_create_device(backend_type: u8) -> *mut c_void {
@@ -103,3 +105,58 @@ pub unsafe extern "C" fn rhi_thread_safe_create_command_list(
         std::ptr::null_mut()
     }
 }}
+
+/// Creates a new 64-bit Packed Quaternary State container for C++ clients
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_packed_state_create64() -> *mut PackedQuatState64 {
+    let state_box = Box::new(PackedQuatState64::new());
+    Box::into_raw(state_box)
+}
+
+/// Destroys a C++ allocated PackedQuatState64 container
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quat_packed_state_destroy64(state_ptr: *mut PackedQuatState64) { unsafe {
+    if !state_ptr.is_null() {
+        let _ = Box::from_raw(state_ptr);
+    }
+}}
+
+/// Sets a Quaternary Digit (0-3) at a specific index (0-31) from C++
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quat_packed_state_set(
+    state_ptr: *mut PackedQuatState64,
+    index: usize,
+    digit_val: u8,
+) -> c_int { unsafe {
+    if state_ptr.is_null() || index >= 32 || digit_val > 3 {
+        return -1; // Error code
+    }
+    
+    let state = &mut *state_ptr;
+    let digit = QuatDigit::from_bits(digit_val & 0b11);
+    state.set_quat(index, digit);
+    
+    0 // Success
+}}
+
+/// Gets a Quaternary Digit (0-3) from a specific index (0-31) for C++
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quat_packed_state_get(
+    state_ptr: *const PackedQuatState64,
+    index: usize,
+) -> u8 { unsafe {
+    if state_ptr.is_null() || index >= 32 {
+        return 0;
+    }
+    
+    let state = &*state_ptr;
+    state.get_quat(index) as u8
+}}
+
+/// Validates a resource transition using the Quaternary Matrix from C++
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_validate_transition_ffi(from_val: u8, to_val: u8) -> bool {
+    let from_state = ResourceState::from(from_val & 0b11);
+    let to_state = ResourceState::from(to_val & 0b11);
+    ResourceState::validate_transition(from_state, to_state)
+}

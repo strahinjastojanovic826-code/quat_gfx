@@ -54,3 +54,32 @@ GraphicsBackend::OpenGL => {
         self.commands_count = 0;
     }
 }
+
+/// Represents a Secondary Command List optimized for multi-threaded recording
+pub struct SecondaryCommandList {
+    pub backend: GraphicsBackend,
+    pub recorded_commands: usize,
+}
+
+impl SecondaryCommandList {
+    pub fn new(backend: GraphicsBackend) -> Self {
+        Self {
+            backend,
+            recorded_commands: 0,
+        }
+    }
+
+    /// Record a draw call on a worker thread
+    pub fn record_draw(&mut self, _vertex_count: u32) {
+        // Multi-threaded parallel recording stub
+        self.recorded_commands += 1;
+    }
+}
+
+/// Extension for CommandList to execute secondary buffers
+impl CommandList {
+    pub fn execute_secondary(&mut self, secondary: SecondaryCommandList) {
+        // Merge or submit secondary command list into primary
+        self.commands_count += secondary.recorded_commands;
+    }
+}

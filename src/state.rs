@@ -11,7 +11,13 @@ pub enum ResourceState {
     State10 = 0b10,
     /// Kvartarno 3 (0b11): Render Target / Depth Write / Present
     State11 = 0b11,
+
 }
+
+/// Advanced 64-bit Quaternary State container for tracking up to 32 resources simultaneously
+/// with O(1) cache-friendly layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PackedQuatState64(pub u64);
 
 impl From<u8> for ResourceState {
     fn from(val: u8) -> Self {
@@ -33,6 +39,7 @@ impl ResourceState {
     pub fn numeric_value(&self) -> u8 {
         *self as u8
     }
+
     pub fn is_transition_valid(self, next: Self) -> bool {
         // Matrica 4x4 bazirana na kvartarnim indeksima (0..3)
         // Red = trenutno stanje, Kolona = novo stanje
@@ -53,6 +60,22 @@ impl ResourceState {
 
         VALIDATION_MATRIX[from_idx][to_idx]
     }
+    /// Quaternary validation matrix check for pipeline barriers
+    pub const GLOBAL_VALIDATION_MATRIX: [[bool; 4]; 4] = [
+        // State00 (Undef), State01 (Read), State10 (Write), State11 (RenderTarget)
+        [true,  true,  true,  true],  // From State00
+        [false, true,  true,  true],  // From State01
+        [true,  true,  true,  true],  // From State10
+        [false, true,  true,  true],  // From State11
+    ];
+
+    #[inline]
+    pub fn validate_transition(from: Self, to: Self) -> bool {
+        let f_idx = from as usize;
+        let t_idx = to as usize;
+        Self::GLOBAL_VALIDATION_MATRIX[f_idx][t_idx]
+    }
+
 
 }
 
@@ -116,38 +139,19 @@ impl QuatDigit {
 
 }
 
-/// Pakuje 4 Kvat stanja u samo 1 bajt (u8)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PackedQuatState(pub u8);
-
-impl PackedQuatState {
-    pub fn get_quat(&self, index: usize) -> QuatDigit {
-        let shift = (index & 0b11) * 2;
-        QuatDigit::from_bits((self.0 >> shift) & 0b11)
-    }
-
-    pub fn set_quat(&mut self, index: usize, quat: QuatDigit) {
-        let shift = (index & 0b11) * 2;
-        let mask = !(0b11 << shift);
-        self.0 = (self.0 & mask) | ((quat as u8) << shift);
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct PackedQuatState64(pub u64);
-
 impl PackedQuatState64 {
+
     pub const CAPACITY: usize = 32;
 
+    #[inline(always)]
     pub fn new() -> Self {
         Self(0)
     }
 
-    /// Preuzima kvat na zadatom indeksu (0..31)
     #[inline(always)]
     pub fn get_quat(&self, index: usize) -> QuatDigit {
         assert!(index < Self::CAPACITY, "Index out of bounds");
-        let shift = (index & 0b11111) * 2; // Maska 31 za opseg 0..31
+        let shift = (index & 0b11111) * 2;
         let bits = ((self.0 >> shift) & 0b11) as u8;
         QuatDigit::from_bits(bits)
     }
