@@ -1,3 +1,19 @@
+//! # FFI Safety & Ownership Overview (`unsafe` Contract)
+//!
+//! All `unsafe` blocks and `pub unsafe extern "C"` functions in this module cross the C/C++/C#
+//! FFI boundary and uphold the following invariants:
+//! - **Pointer validity & alignment:** Any non-null raw pointer passed from external callers must point
+//!   to a valid, properly aligned, and initialized Rust instance (`DeviceManager`, `CommandList`,
+//!   `ThreadSafeDeviceContext`, or `PackedQuatState64`) for the duration of the call.
+//! - **Ownership & lifetime (`Box::into_raw` / `Box::from_raw`):** Functions returning raw pointers
+//!   transfer heap ownership to the caller, and each object must be freed once using its matching
+//!   `destroy_*` function (`rhi_destroy_device`, `rhi_destroy_command_list`,
+//!   `rhi_destroy_thread_safe_device`, or `quat_packed_state_destroy64`) to avoid leaks or double-free.
+//! - **Null & bounds checks:** Callers must check returned pointers for null and respect index/value
+//!   bounds (or use `quat_packed_state_set_checked` for explicit error status codes).
+//! - **Concurrency:** `ThreadSafeDeviceContext` wraps `DeviceManager` in `Arc<Mutex<...>>` for
+//!   synchronized access across threads while keeping the underlying pointer valid until destroyed.
+
 use std::ffi::c_void;
 use crate::backend::GraphicsBackend;
 use crate::command::CommandList;
@@ -159,4 +175,22 @@ pub extern "C" fn quat_validate_transition_ffi(from_val: u8, to_val: u8) -> bool
     let from_state = ResourceState::from(from_val & 0b11);
     let to_state = ResourceState::from(to_val & 0b11);
     ResourceState::validate_transition(from_state, to_state)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quat_packed_state_set_checked(
+    state_ptr: *mut PackedQuatState64,
+    index: usize,
+    digit_val: u8,
+) -> c_int {
+    if state_ptr.is_null() {
+        return -1;
+    }
+    if index >= PackedQuatState64::CAPACITY {
+        return -2;
+    }
+    if digit_val > 3 {
+        return -3;
+    }
+    unsafe { quat_packed_state_set(state_ptr, index, digit_val) }
 }

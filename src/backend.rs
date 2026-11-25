@@ -79,4 +79,11 @@ impl NativeResourceBarrier {
 
         Ok(())
     }
+
+    pub fn is_valid_quaternary_transition(&self) -> bool {
+    let from = ResourceState::from(self.from_quaternary_state & 0b11);
+    let to = ResourceState::from(self.to_quaternary_state & 0b11);
+    ResourceState::can_transition(from, to)
+    }  
+
 }

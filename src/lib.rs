@@ -22,6 +22,11 @@ mod tests {
     use crate::ffi::*;
     use std::ffi::c_void;
     use std::time::Instant;
+    use crate::allocator::MemoryAllocator;
+    use crate::GpuResource;
+    use crate::resource::NativeGpuHandle;
+    use crate::state::DetailedBarrierInfo;
+    use crate::backend::NativeResourceBarrier;
 
     // ==========================================
     // 1. QUATERNARY STATES & BITFLAGS TESTS
@@ -364,6 +369,113 @@ fn bench_ffi_boundary_native() {
 
         quat_packed_state_destroy64(state_ptr);
     }
+}
+
+#[test]
+fn test_allocator_free_and_reuse_with_offset() {
+    let iterations = 50_000;
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        let mut alloc = MemoryAllocator::new();
+        let desc_a = ResourceDesc {
+            resource_type: ResourceType::Buffer,
+            size_in_bytes: 256,
+            width: 0,
+            height: 0,
+            initial_state: ResourceState::State00,
+        };
+        let desc_b = ResourceDesc {
+            resource_type: ResourceType::Buffer,
+            size_in_bytes: 512,
+            width: 0,
+            height: 0,
+            initial_state: ResourceState::State00,
+        };
+
+        let id_a = alloc.sub_allocate(&desc_a);
+        let id_b = alloc.sub_allocate(&desc_b);
+        assert_ne!(id_a, id_b);
+
+        assert!(alloc.free(id_a));
+        assert!(!alloc.free(9999));
+
+        let reused = alloc.allocate_reusable(128);
+        assert_eq!(reused, Some(id_a));
+    }
+
+    let duration = start.elapsed();
+    println!("[BENCH] test_allocator_free_and_reuse_with_offset ({} iter): {:?}", iterations, duration);
+}
+
+#[test]
+fn test_two_layer_state_and_detailed_barrier() {
+    let iterations = 100_000;
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        let desc = ResourceDesc {
+            resource_type: ResourceType::Texture2D,
+            size_in_bytes: 4096,
+            width: 64,
+            height: 64,
+            initial_state: ResourceState::State00,
+        };
+        let mut res = GpuResource::new(1, desc, NativeGpuHandle::Null);
+        assert_eq!(res.detail_mask(), 0);
+
+        let info = DetailedBarrierInfo::from_quats(
+            QuatDigit::Q0,
+            QuatDigit::Q1,
+            0x0000_0002,
+            0x0000_0004,
+        );
+        assert_eq!(info.quat_summary, 0b00_01);
+        assert!(ResourceState::can_transition(ResourceState::State00, ResourceState::State01));
+
+        res.set_detailed_state(ResourceState::State01, info.access_mask);
+        assert_eq!(res.current_state(), ResourceState::State01);
+        assert_eq!(res.detail_mask(), 0x0000_0004);
+
+        let mut cmd = CommandList::new(GraphicsBackend::Vulkan);
+        cmd.resource_barrier_detailed(res.id(), ResourceState::State00, ResourceState::State01, info.access_mask);
+        assert_eq!(cmd.commands_count, 1);
+
+        let barrier = NativeResourceBarrier {
+            resource_id: res.id(),
+            from_quaternary_state: 0b01,
+            to_quaternary_state: 0b11,
+        };
+        assert!(!barrier.is_valid_quaternary_transition());
+    }
+
+    let duration = start.elapsed();
+    println!("[BENCH] test_two_layer_state_and_detailed_barrier ({} iter): {:?}", iterations, duration);
+}
+
+#[test]
+fn test_ffi_packed_state_set_checked() {
+    let iterations = 100_000;
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        unsafe {
+            assert_eq!(quat_packed_state_set_checked(std::ptr::null_mut(), 0, 1), -1);
+
+            let state_ptr = quat_packed_state_create64();
+            assert!(!state_ptr.is_null());
+
+            assert_eq!(quat_packed_state_set_checked(state_ptr, 32, 1), -2);
+            assert_eq!(quat_packed_state_set_checked(state_ptr, 0, 4), -3);
+            assert_eq!(quat_packed_state_set_checked(state_ptr, 3, 2), 0);
+            assert_eq!(quat_packed_state_get(state_ptr, 3), 2);
+
+            quat_packed_state_destroy64(state_ptr);
+        }
+    }
+
+    let duration = start.elapsed();
+    println!("[BENCH] test_ffi_packed_state_set_checked ({} iter): {:?}", iterations, duration);
 }
 
 }

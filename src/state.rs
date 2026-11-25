@@ -19,6 +19,26 @@ pub enum ResourceState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PackedQuatState64(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailedBarrierInfo {
+    pub quat_summary: u8, // 2-bit packed (from_quat << 2 | to_quat)
+    pub stage_mask: u32,
+    pub access_mask: u32,
+    pub subresource_range: u32,
+}
+
+impl DetailedBarrierInfo {
+    pub fn from_quats(from_q: QuatDigit, to_q: QuatDigit, stage_mask: u32, access_mask: u32) -> Self {
+        let quat_summary = ((from_q as u8 & 0b11) << 2) | (to_q as u8 & 0b11);
+        Self {
+            quat_summary,
+            stage_mask,
+            access_mask,
+            subresource_range: 0,
+        }
+    }
+}
+
 impl From<u8> for ResourceState {
     fn from(val: u8) -> Self {
         // Maskiranje na najniža 2 bita (Baza 4: vrednosti 0, 1, 2, 3)
@@ -76,6 +96,19 @@ impl ResourceState {
         Self::GLOBAL_VALIDATION_MATRIX[f_idx][t_idx]
     }
 
+    pub const fn can_transition(from: Self, to: Self) -> bool {
+    let f = (from as u8 & 0b11) as usize;
+    let t = (to as u8 & 0b11) as usize;
+    match (f, t) {
+        (0, _) => true,
+        (1, 3) => false,
+        (1, _) => true,
+        (2, _) => true,
+        (3, 0) => false,
+        (3, _) => true,
+        _ => false,
+    }
+}
 
 }
 

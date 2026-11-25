@@ -32,6 +32,7 @@ pub struct GpuResource {
     desc: ResourceDesc,
     current_state: ResourceState,
     pub handle: NativeGpuHandle,
+    detailed_state_mask: u32,
 }
 
 impl GpuResource {
@@ -42,6 +43,7 @@ impl GpuResource {
             desc,
             current_state: initial_state,
             handle,
+            detailed_state_mask: 0,
         }
     }
 
@@ -60,4 +62,14 @@ impl GpuResource {
     pub fn desc(&self) -> &ResourceDesc {
         &self.desc
     }
+
+    pub fn set_detailed_state(&mut self, new_state: ResourceState, detail_mask: u32) {
+    self.current_state = new_state;
+    self.detailed_state_mask = detail_mask;
+}
+
+pub fn detail_mask(&self) -> u32 {
+    self.detailed_state_mask
+}
+
 }

@@ -4,7 +4,7 @@ use crate::state::ResourceState;
 pub struct CommandList {
     backend: GraphicsBackend,
     // Ovde u produkciji ide npr. ID3D12GraphicsCommandList ili VkCommandBuffer
-    commands_count: usize,
+    pub commands_count: usize,
 }
 
 impl CommandList {
@@ -27,8 +27,14 @@ impl CommandList {
                 self.commands_count += 1;
             }
             GraphicsBackend::Vulkan => {
-                // Implementirati VkImageMemoryBarrier / VkBufferMemoryBarrier
-                self.commands_count += 1;
+                // Reference backend path: map quaternary state to Vulkan stage/access/layout
+                 let _stage_hint = match _to_state {
+                 ResourceState::State00 => "VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT",
+                 ResourceState::State01 => "VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT",
+                 ResourceState::State10 => "VK_PIPELINE_STAGE_2_TRANSFER_BIT",
+                 ResourceState::State11 => "VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT",
+                };
+    self.commands_count += 1;
             }
             GraphicsBackend::Metal => {
                 // Implementirati MTLRenderPassDescriptor / MTLBlitCommandEncoder
@@ -53,6 +59,18 @@ GraphicsBackend::OpenGL => {
         // Submit komandne liste na GPU queue
         self.commands_count = 0;
     }
+
+    pub fn resource_barrier_detailed(
+    &mut self,
+    resource_id: u32,
+    from_state: ResourceState,
+    to_state: ResourceState,
+    detail_mask: u32,
+) {
+    let _ = (resource_id, detail_mask);
+    self.resource_barrier(resource_id, from_state, to_state);
+}
+
 }
 
 /// Represents a Secondary Command List optimized for multi-threaded recording

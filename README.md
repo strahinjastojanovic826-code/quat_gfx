@@ -16,6 +16,11 @@ A lightweight, high-performance graphics abstraction library written in Rust, su
 * **Extended Quaternary Operations:** Advanced quaternary arithmetic, bitwise logic, and extended 64-bit multi-quat packing.
 * **Zero-Dependency Native Benchmarking:** Built-in high-precision performance measurement suite (`std::time::Instant`) verifying sub-30ns latencies for core state and FFI operations.
 * **High-Density State Packing:** Extremely cache-efficient packing of **32 quaternary states** into a single `u64` (`PackedQuatState64`) with custom iterators.
+* **Two-Layer State & Barrier Architecture:** Combines compact 2-bit quaternary summaries (`PackedQuatState64`) with detailed barrier descriptors (`DetailedBarrierInfo`) and per-resource detail masks for pipeline stages, access flags, and subresources.
+* **Unified Transition Validation:** Single shared transition validation rule (`ResourceState::can_transition`) across state checks, barrier validation, and `NativeResourceBarrier` to prevent conflicting transition logic.
+* **Reusable Sub-Allocator with Offsets:** `MemoryAllocator` tracks block offsets, supports real deallocation via `free()`, and allows reusing freed blocks through `allocate_reusable()`.
+* **Checked FFI Bounds & Status Codes:** Added `quat_packed_state_set_checked` returning explicit status codes (`0` on success, `-1` for null pointer, `-2` for out-of-range index, `-3` for invalid digit value).
+* **Reference Vulkan Barrier Path:** `CommandList` includes a reference Vulkan barrier mapping path alongside detailed barrier recording (`resource_barrier_detailed`).
 
 ---
 
@@ -114,22 +119,25 @@ END OF TERMS AND CONDITIONS
 
 ## Benchmark
 
-| Test / Operation Name | Iteration Count | Total Time | Average per Call / Iteration |
-| :--- | :--- | :--- | :--- |
-| `test_backends_creation` | 50,000 | 2.8829 ms | -[cite: 29] |
-| `test_bitflags_2_4_integration` | 100,000 | 3.4496 ms | -[cite: 29] |
-| `test_packed_quat_state_64` | 100,000 | 3.3901 ms | -[cite: 29] |
-| `test_quaternary_masking_overflow` | 100,000 | 3.4582 ms | -[cite: 29] |
-| `test_packed_quat_state_packing` | 100,000 | 3.9497 ms | -[cite: 29] |
-| `test_ffi_null_pointer_handling` | 100,000 | 5.0141 ms | -[cite: 29] |
-| `test_invalid_resource_transition` | 100,000 | 5.6855 ms | -[cite: 29] |
-| `test_resource_states_4_modes` | 100,000 | 5.4967 ms | -[cite: 29] |
-| `test_resource_transition_pipeline` | 50,000 | 4.5308 ms | -[cite: 29] |
-| `test_ffi_safe_lifecycle` | 50,000 | 11.3419 ms | -[cite: 29] |
-| `FFI State Set` | 1,000,000 | 15.5431 ms | 15 ns / call[cite: 29] |
-| `FFI Validation` | 1,000,000 | 29.6438 ms | 29 ns / call[cite: 29] |
-| `Matrix Validation` | 10,000,000 | 81.1385 ms | 8 ns / call[cite: 29] |
-| `PackedQuatState64` (all 32 quats) | 1,000,000 | 299.6717 ms | 299 ns / loop[cite: 29] |
+| Test / Benchmark Name | Iterations | Total Time | Avg / Notes | Status |
+| :--- | :---: | :---: | :---: | :---: |
+| `test_backends_creation` | 50,000 | `2.5456ms` | — | `ok` |
+| `test_packed_quat_state_64` | 100,000 | `3.4152ms` | — | `ok` |
+| `test_bitflags_2_4_integration` | 100,000 | `3.4563ms` | — | `ok` |
+| `test_packed_quat_state_packing` | 100,000 | `5.3851ms` | — | `ok` |
+| `test_ffi_null_pointer_handling` | 100,000 | `5.5381ms` | — | `ok` |
+| `test_invalid_resource_transition` | 100,000 | `6.0815ms` | — | `ok` |
+| `test_quaternary_masking_overflow` | 100,000 | `3.864ms` | — | `ok` |
+| `test_resource_states_4_modes` | 100,000 | `4.9293ms` | — | `ok` |
+| `test_two_layer_state_and_detailed_barrier` | 100,000 | `6.1941ms` | — | `ok` |
+| `test_resource_transition_pipeline` | 50,000 | `6.9713ms` | — | `ok` |
+| `test_allocator_free_and_reuse_with_offset` | 50,000 | `14.5059ms` | — | `ok` |
+| `test_ffi_safe_lifecycle` | 50,000 | `14.8918ms` | — | `ok` |
+| `test_ffi_packed_state_set_checked` | 100,000 | `15.427ms` | — | `ok` |
+| `bench_ffi_boundary_native` (FFI State Set) | 1,000,000 | `22.029ms` | `22ns` / call | `ok` |
+| `bench_ffi_boundary_native` (FFI Validation) | 1,000,000 | `24.8287ms` | `24ns` / call | `ok` |
+| `bench_resource_transition_validation_native` | 10,000,000 | `77.1931ms` | `7ns` / call | `ok` |
+| `bench_packed_quat_operations_native` | 1,000,000 | `304.9029ms` | `304ns` / loop (all 32 quats) | `ok` |
 
 ---
 
@@ -205,6 +213,53 @@ fn main() {
 }
 ```
 
+### Detailed Barrier & Reusable Allocator Example
+
+```rust
+use quat_gfx::allocator::MemoryAllocator;
+use quat_gfx::backend::GraphicsBackend;
+use quat_gfx::device::{DeviceManager, GpuDevice};
+use quat_gfx::resource::{NativeGpuHandle, ResourceDesc, ResourceType};
+use quat_gfx::state::{DetailedBarrierInfo, QuatDigit, ResourceState};
+
+fn main() {
+    let mut device = DeviceManager::new(GraphicsBackend::Vulkan);
+    let mut cmd_list = device.create_command_list();
+
+    let desc = ResourceDesc {
+        resource_type: ResourceType::Texture2D,
+        size_in_bytes: 4096,
+        width: 64,
+        height: 64,
+        initial_state: ResourceState::State00,
+    };
+
+    let mut resource = device.create_resource(desc);
+    let barrier_info = DetailedBarrierInfo::from_quats(
+        QuatDigit::Q0,
+        QuatDigit::Q1,
+        0x0000_0002,
+        0x0000_0004,
+    );
+
+    resource.set_detailed_state(ResourceState::State01, barrier_info.access_mask);
+    cmd_list.resource_barrier_detailed(
+        resource.id(),
+        ResourceState::State00,
+        ResourceState::State01,
+        barrier_info.access_mask,
+    );
+    cmd_list.flush_commands();
+
+    let mut allocator = MemoryAllocator::new();
+    let block_id = allocator.sub_allocate(&desc);
+    assert!(allocator.free(block_id));
+    let reused_id = allocator.allocate_reusable(2048);
+    assert_eq!(reused_id, Some(block_id));
+    let _ = NativeGpuHandle::Null;
+}
+```
+
 ---
 
 # Cross-Platform RHI (Rendering Hardware Interface)
@@ -256,6 +311,41 @@ int main() {
     rhi_destroy_command_list(cmd_list);
     rhi_destroy_device(device);
 
+    return 0;
+}
+```
+
+### Checked Quaternary FFI Example (C)
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct PackedQuatState64 PackedQuatState64;
+
+PackedQuatState64* quat_packed_state_create64(void);
+void quat_packed_state_destroy64(PackedQuatState64* state_ptr);
+int quat_packed_state_set_checked(PackedQuatState64* state_ptr, size_t index, uint8_t digit_val);
+uint8_t quat_packed_state_get(const PackedQuatState64* state_ptr, size_t index);
+bool quat_validate_transition_ffi(uint8_t from_val, uint8_t to_val);
+
+int main(void) {
+    PackedQuatState64* packed = quat_packed_state_create64();
+    if (!packed) {
+        return 1;
+    }
+
+    int rc = quat_packed_state_set_checked(packed, 0, 2);
+    if (rc == 0) {
+        uint8_t val = quat_packed_state_get(packed, 0);
+        printf("Quat at index 0: %u\n", val);
+    }
+
+    bool valid = quat_validate_transition_ffi(0, 1);
+    printf("Transition 0 -> 1 valid: %d\n", valid ? 1 : 0);
+
+    quat_packed_state_destroy64(packed);
     return 0;
 }
 ```
